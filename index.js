@@ -38,7 +38,7 @@ async function getRandomPhoto() {
 }
 
 // Клавиатура
-const fortuneKeyboard = {
+const fortuneKeyboard = JSON.stringify({
     one_time: false,
     buttons: [
         [
@@ -51,13 +51,13 @@ const fortuneKeyboard = {
             }
         ]
     ]
-};
+});
 
 // Скрытая клавиатура
-const hideKeyboard = {
+const hideKeyboard = JSON.stringify({
     buttons: [],
     one_time: true
-};
+});
 
 vk.updates.on('message_new', async (context) => {
     if (!context.isUser) return;
@@ -98,7 +98,7 @@ vk.updates.on('message_new', async (context) => {
     }
 
     if (text === 'привет') {
-        await context.send('Привет 👋 Напиши "гадание"!');
+        await context.send('Привет 👋 Напиши "меню" чтобы открыть кнопки!');
     } else {
         await context.send('Я тебя не понял 😅');
     }
