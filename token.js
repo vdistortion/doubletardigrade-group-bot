@@ -1,0 +1,2 @@
+export const groupToken = 'vk1.a.buZ7LYqzWkBSDWBfHrk3zxb6YePaerkrmWphSiJiCGu8U-K4zBJ78ICD-7rqdmoyrgYqbflQ3YDbD-fX3CKtAbzeMhxyE3MlhzFH66eIQUpt7bIcjLUyGtDWnPs8YRgvWP6_T1TmzMDAf80JACP-jfQKwuHXUsVXK0eWBe-_s5O5w6qADzco7GBOyINS2n1I8nb684PNxfwVrxZcbh5TUw';
+export const userToken = '1d148adb1d148adb1d148adb711e54b62611d141d148adb74c9ad91b682f62669323285'; // Сервисный ключ
