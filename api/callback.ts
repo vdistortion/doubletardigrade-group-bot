@@ -25,6 +25,11 @@ export default async (req: VercelRequest, res: VercelResponse) => {
         return;
     }
 
+    if (body?.type === 'confirmation') {
+        res.status(200).send(process.env.CONFIRMATION);
+        return;
+    }
+
     if (process.env.VK_SECRET_KEY) {
         const signature = req.headers['x-vk-signature'] as string;
         const bodyString = JSON.stringify(body);
@@ -35,11 +40,6 @@ export default async (req: VercelRequest, res: VercelResponse) => {
         }
     }
 
-    if (body?.type === 'confirmation') {
-        res.status(200).send(process.env.CONFIRMATION);
-        return;
-    }
-
     try {
         await bot.handleWebhookUpdate(body);
         res.status(200).send('ok');
@@ -48,3 +48,5 @@ export default async (req: VercelRequest, res: VercelResponse) => {
         res.status(500).send('Error handling webhook');
     }
 };
+
+console.log(process.env.CONFIRMATION)
