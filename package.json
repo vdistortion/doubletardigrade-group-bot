@@ -1,16 +1,21 @@
 {
-  "name": "vk-test-bot",
+  "name": "vk-vercel-bot",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "type": "module",
+  "scripts": {
+    "dev": "tsc --watch & node --watch dist/api/dev-server.js",
+    "tunnel": "tsc --watch & node --watch dist/api/dev-server.js & lt --port 3000 --subdomain vk-vercel-bot",
+    "build": "tsc",
+    "start": "node dist/api/callback.js"
+  },
   "dependencies": {
+    "@supabase/supabase-js": "^2.39.3",
+    "dotenv": "^17.4.2",
     "vk-io": "^4.10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.39",
+    "@vercel/node": "^5.7.5",
+    "typescript": "^5.3.3"
   }
 }

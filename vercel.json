@@ -1,0 +1,14 @@
+{
+  "functions": {
+    "api/callback.ts": {
+      "includeFiles": "bot.ts,lib/**",
+      "memory": 1024,
+      "maxDuration": 30
+    }
+  },
+  "buildCommand": "tsc",
+  "devCommand": "tsc --watch",
+  "github": {
+    "silent": true
+  }
+}
