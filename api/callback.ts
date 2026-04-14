@@ -18,12 +18,16 @@ function verifyVKSignature(body: string, signature: string, secret: string): boo
 }
 
 export default async (req: VercelRequest, res: VercelResponse) => {
-    const body = req.body;
+    let rawBody = '';
 
-    if (!body) {
-        res.status(400).send('Empty body');
-        return;
-    }
+    await new Promise<void>((resolve) => {
+        req.on('data', chunk => {
+            rawBody += chunk;
+        });
+        req.on('end', () => resolve());
+    });
+
+    const body = JSON.parse(rawBody);
 
     if (body?.type === 'confirmation') {
         res.status(200).send(process.env.CONFIRMATION);
@@ -32,21 +36,13 @@ export default async (req: VercelRequest, res: VercelResponse) => {
 
     if (process.env.VK_SECRET_KEY) {
         const signature = req.headers['x-vk-signature'] as string;
-        const bodyString = JSON.stringify(body);
 
-        if (!signature || !verifyVKSignature(bodyString, signature, process.env.VK_SECRET_KEY)) {
+        if (!signature || !verifyVKSignature(rawBody, signature, process.env.VK_SECRET_KEY)) {
             res.status(403).send('Invalid signature');
             return;
         }
     }
 
-    try {
-        await bot.handleWebhookUpdate(body);
-        res.status(200).send('ok');
-    } catch (error) {
-        console.error('Ошибка при обработке вебхука VK:', error);
-        res.status(500).send('Error handling webhook');
-    }
+    await bot.handleWebhookUpdate(body);
+    res.status(200).send('ok');
 };
-
-console.log(process.env.CONFIRMATION)
