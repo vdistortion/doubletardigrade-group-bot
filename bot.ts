@@ -10,9 +10,9 @@ import {
     getQuestions,
     saveTodayQuizAnswer,
     Question
-} from './lib/supabase.js'; // .js для скомпилированного кода
-import { isUserAdmin } from './lib/admin.js'; // .js для скомпилированного кода
-import { userKeyboard, adminKeyboard, adminMenuKeyboard } from './lib/keyboards.js'; // .js для скомпилированного кода
+} from './lib/supabase.js';
+import { isUserAdmin } from './lib/admin.js';
+import { userKeyboard, adminKeyboard, adminMenuKeyboard } from './lib/keyboards.js';
 
 // Определяем типы для payload кнопок
 interface BasePayload {

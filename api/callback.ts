@@ -4,7 +4,6 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import bot from '../bot.js';
-import {log} from "node:util";
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 dotenv.config({ path: resolve(__dirname, '../../.env.local') });
@@ -26,9 +25,8 @@ export default async (req: VercelRequest, res: VercelResponse) => {
         return;
     }
 
-    // Проверка подписи (если есть секретный ключ)
     if (process.env.VK_SECRET_KEY) {
-        const signature = req.headers['x-gamification-signature'] as string;
+        const signature = req.headers['x-vk-signature'] as string;
         const bodyString = JSON.stringify(body);
 
         if (!signature || !verifyVKSignature(bodyString, signature, process.env.VK_SECRET_KEY)) {
@@ -50,5 +48,3 @@ export default async (req: VercelRequest, res: VercelResponse) => {
         res.status(500).send('Error handling webhook');
     }
 };
-
-console.log(process.env.CONFIRMATION)
