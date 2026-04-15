@@ -18,6 +18,7 @@ function getSupabase(): SupabaseClient {
   }
   return _supabase;
 }
+
 // Интерфейсы для таблиц Supabase
 export interface Tortoise {
   id: number;
@@ -63,15 +64,16 @@ export async function getTortoises(): Promise<Tortoise[]> {
 export async function addTortoise(
   text: string,
   description: string,
-  image: string,
+  image: string | null,
 ): Promise<Tortoise | null> {
   const { data, error } = await getSupabase()
     .from('tortoises')
-    .insert([{ text, description, image }])
-    .select();
+    .insert([{ text, description: description || null, image }])
+    .select()
+    .single<Tortoise>();
 
-  if (error) console.error('Supabase addTortoise error:', error);
-  return (data?.[0] as Tortoise) || null;
+  if (error) console.error('addTortoise error:', error);
+  return data ?? null;
 }
 
 export async function deleteTortoise(id: number): Promise<void> {
@@ -125,81 +127,52 @@ export async function getTodayTortoise(
 ): Promise<{ tortoise: Tortoise; isNew: boolean }> {
   const today = getTodayDate();
 
-  // Определяем ожидаемую структуру данных, возвращаемых запросом select
-  interface ExistingTortoiseData {
-    tortoises: { text: string }[]; // Связанные данные - это массив
+  // Supabase возвращает связанный объект, а не массив
+  interface ExistingRow {
+    tortoises: Tortoise | null;
   }
 
   const { data: existing, error: existingError } = await getSupabase()
     .from('daily_tortoises')
-    .select('tortoises(*)')
+    .select('tortoises(id, text, description, image, created_at)')
     .eq('user_id', userId)
     .eq('date', today)
-    .single<ExistingTortoiseData>(); // Явно типизируем результат single
+    .single<ExistingRow>();
 
   if (existingError && existingError.code !== 'PGRST116') {
-    // PGRST116 = No rows found
-    console.error('Supabase getTodayTortoise existing error:', existingError);
+    console.error('getTodayTortoise existing error:', existingError);
   }
 
-  if (existing) {
-    // Проверяем, что массив tortoises существует и не пуст
-    if (existing.tortoises && existing.tortoises.length > 0) {
-      return {
-        tortoise: {
-          id: -1,
-          text: existing.tortoises[0].text,
-          description: '',
-          image: '',
-          created_at: '',
-        },
-        isNew: false,
-      };
-    } else {
-      // Этот случай означает, что запись daily_tortoise существует, но связанная тихоходка отсутствует.
-      // Этого не должно происходить при правильных внешних ключах.
-      console.warn(
-        `Daily tortoise entry for user ${userId} on ${today} found, but no related tortoise text.`,
-      );
-      return {
-        tortoise: {
-          id: -1,
-          text: 'неизвестная тихоходка (ошибка связи)',
-          description: '',
-          image: '',
-          created_at: '',
-        },
-        isNew: false,
-      };
-    }
+  if (existing?.tortoises) {
+    return { tortoise: existing.tortoises, isNew: false };
   }
 
+  // Нет записи на сегодня — выбираем случайную тихоходку
   const tortoises = await getTortoises();
   if (tortoises.length === 0) {
+    // Возвращаем заглушку
     return {
       tortoise: {
         id: -1,
-        text: 'неизвестная тихоходка',
-        description: '',
-        image: '',
+        text: 'тихоходка-загадка',
+        description: null,
+        image: null,
         created_at: '',
       },
       isNew: true,
     };
   }
+
   const randomTortoise = tortoises[Math.floor(Math.random() * tortoises.length)];
 
   const { error: insertError } = await getSupabase()
     .from('daily_tortoises')
-    .insert([
-      {
-        user_id: userId,
-        tortoise_id: randomTortoise.id,
-        date: today,
-      },
-    ]);
+    .insert([{ user_id: userId, tortoise_id: randomTortoise.id, date: today }]);
 
-  if (insertError) console.error('Supabase insert daily_tortoise error:', insertError);
+  // Обработка race condition (дубликат — не ошибка)
+  if (insertError && insertError.code !== '23505') {
+    console.error('insert daily_tortoise error:', insertError);
+  }
 
   return { tortoise: randomTortoise, isNew: true };
 }

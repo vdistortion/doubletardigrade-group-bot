@@ -1,26 +1,35 @@
 import { API } from 'vk-io';
 
-let adminsCache: number[] = [];
-let adminsCacheTime: number = 0;
+interface CachedAdmins {
+  ids: number[];
+  timestamp: number;
+}
+
 const CACHE_TTL = 5 * 60 * 1000; // Кэш админов на 5 минут
+let cache: CachedAdmins = { ids: [], timestamp: 0 };
 
 export async function getAdminsWithCache(api: API, groupId: number): Promise<number[]> {
   const now = Date.now();
-  if (adminsCache.length > 0 && now - adminsCacheTime < CACHE_TTL) {
-    return adminsCache;
+  if (cache.ids.length > 0 && now - cache.timestamp < CACHE_TTL) {
+    return cache.ids;
   }
+
   try {
     const response = await api.groups.getMembers({
-      group_id: groupId,
+      group_id: String(groupId),
       filter: 'managers',
       count: 1000,
     });
-    adminsCache = response.items;
-    adminsCacheTime = now;
-    return adminsCache;
+
+    // ВАЖНО: items содержит объекты { id, role, ... }, а не числа
+    cache = {
+      ids: response.items.map((m: any) => m.id as number),
+      timestamp: now,
+    };
+    return cache.ids;
   } catch (error) {
     console.error('Ошибка при получении админов:', error);
-    return adminsCache;
+    return cache.ids; // возвращаем устаревший кэш при ошибке
   }
 }
 

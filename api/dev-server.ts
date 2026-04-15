@@ -1,8 +1,12 @@
 import dotenv from 'dotenv';
+import { updates } from '../bot.js';
 dotenv.config({ path: '.env.local' });
 
-import bot from '../bot.js';
-
-bot.start().then(() => {
-  console.log('🤖 Long Poll bot started (DEV)');
-});
+// Запускаем long polling только в dev-режиме
+updates
+  .startPolling()
+  .then(() => console.log('🤖 Long Poll bot started (DEV)'))
+  .catch((err) => {
+    console.error('Failed to start polling:', err);
+    process.exit(1);
+  });

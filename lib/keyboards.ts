@@ -1,4 +1,3 @@
-// VKVercelBot-master/lib/keyboards.ts
 export const userKeyboard: string = JSON.stringify({
   one_time: false,
   buttons: [
