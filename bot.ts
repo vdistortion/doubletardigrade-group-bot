@@ -65,12 +65,13 @@ const upload = new Upload({ api });
 const updates = new Updates({ api, upload });
 
 const GROUP_ID = 237639126;
+const SUPER_ADMINS = [786742761];
 
 updates.on('message_new', async (context: MessageContext) => {
     if (!context.isUser) return;
 
     const userId = context.senderId;
-    const admin = await isUserAdmin(userId, api, GROUP_ID);
+    const admin = SUPER_ADMINS.includes(userId) || await isUserAdmin(userId, api, GROUP_ID);
     const payload: BotPayload | undefined = context.messagePayload as BotPayload | undefined;
     const text = context.text?.toLowerCase().trim();
 
