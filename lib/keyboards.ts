@@ -72,6 +72,14 @@ export const adminMenuKeyboard: string = JSON.stringify({
         },
         color: 'negative',
       },
+      {
+        action: {
+          type: 'text',
+          label: '🔄 Синхронизировать альбом',
+          payload: JSON.stringify({ action: 'sync_album' }),
+        },
+        color: 'primary',
+      },
     ],
     [
       {

@@ -22,6 +22,7 @@ type BotPayload =
   | { action: 'admin_menu' }
   | { action: 'manage_tortoises' }
   | { action: 'manage_questions' }
+  | { action: 'sync_album' }
   | { action: 'back' };
 
 // ─── Инициализация ───────────────────────────────────────────────────────────
@@ -132,6 +133,60 @@ updates.on('message_new', async (context: MessageContext) => {
         tortoises.map((t) => `${t.id}. ${t.text}`).join('\n') +
         '\n\n💡 Команды:\n/add_tortoise <текст> — добавить\n/delete_tortoise <id> — удалить';
       await context.send({ message: list, keyboard: adminMenuKeyboard });
+      return;
+    }
+
+    if (payload?.action === 'sync_album') {
+      if (!admin) return;
+
+      const albumId = process.env.ALBUM_ID;
+      if (!albumId) {
+        await context.send({ message: '❌ В .env.local не указан ALBUM_ID', keyboard: adminMenuKeyboard });
+        return;
+      }
+
+      await context.send({ message: '⏳ Начинаю чтение альбома...', keyboard: adminMenuKeyboard });
+
+      try {
+        // Получаем фото из альбома группы (owner_id для групп всегда с минусом)
+        const photosResponse = await api.photos.get({
+          owner_id: -GROUP_ID,
+          album_id: albumId,
+          count: 1000, // Максимум за один запрос
+        });
+
+        // Получаем уже сохраненные тихоходки, чтобы не добавлять дубликаты
+        const existingTortoises = await getTortoises();
+        const existingImages = new Set(existingTortoises.map((t) => t.image));
+
+        let addedCount = 0;
+
+        for (const photo of photosResponse.items) {
+          const attachment = `photo${photo.owner_id}_${photo.id}`;
+
+          // Если такого фото еще нет в базе
+          if (!existingImages.has(attachment)) {
+            const caption = (photo.text ?? '').trim();
+
+            // Добавляем только если есть описание (первая строка пойдет в название)
+            if (caption) {
+              const [text, ...descParts] = caption.split('\n').map((s) => s.trim());
+              const description = descParts.join('\n').trim();
+
+              await addTortoise(text, description, attachment);
+              addedCount++;
+            }
+          }
+        }
+
+        await context.send({
+          message: `✅ Синхронизация завершена!\n\n📸 Всего фото в альбоме: ${photosResponse.count}\n🐢 Добавлено новых тихоходок: ${addedCount}`,
+          keyboard: adminMenuKeyboard
+        });
+      } catch (error) {
+        console.error('Sync error:', error);
+        await context.send({ message: '❌ Ошибка при синхронизации альбома. Проверь логи.', keyboard: adminMenuKeyboard });
+      }
       return;
     }
 
