@@ -9,9 +9,9 @@ export function getMainMenu(isAdmin: boolean, hasTardigrades: boolean, hasQuesti
   }
 
   if (hasQuestions) {
-    const quizLabel = isQuizInProgress ? '🔬 Продолжить квиз' : '🔬 Квиз';
+    const label = isQuizInProgress ? '🔬 Продолжить квиз' : '🔬 Квиз';
     buttons.push([{
-      action: { type: 'text', label: quizLabel, payload: JSON.stringify({ action: 'quiz' }) },
+      action: { type: 'text', label: label, payload: JSON.stringify({ action: 'quiz' }) },
       color: 'secondary'
     }]);
   }
@@ -26,19 +26,33 @@ export function getMainMenu(isAdmin: boolean, hasTardigrades: boolean, hasQuesti
   return JSON.stringify({ one_time: false, buttons });
 }
 
-export const adminMenuKeyboard = JSON.stringify({
-  one_time: false,
-  buttons: [
+export function getAdminMenu(hasQuestions: boolean) {
+  const buttons = [
     [
       { action: { type: 'text', label: '🔄 Синхронизация', payload: JSON.stringify({ action: 'sync_album' }) }, color: 'primary' },
       { action: { type: 'text', label: '🧪 Тест выдачи', payload: JSON.stringify({ action: 'test_tardigrade' }) }, color: 'secondary' }
-    ],
-    [
-      { action: { type: 'text', label: '❓ Команды', payload: JSON.stringify({ action: 'admin_help' }) }, color: 'default' }
-    ],
-    [{ action: { type: 'text', label: '◀️ Назад', payload: JSON.stringify({ action: 'back' }) }, color: 'default' }]
-  ]
-});
+    ]
+  ];
+
+  if (hasQuestions) {
+    buttons.push([{
+      action: { type: 'text', label: '🗑 Удалить все вопросы', payload: JSON.stringify({ action: 'quiz_clear' }) },
+      color: 'negative'
+    }]);
+  } else {
+    buttons.push([{
+      action: { type: 'text', label: '🧪 Инициализировать квиз', payload: JSON.stringify({ action: 'quiz_init' }) },
+      color: 'positive'
+    }]);
+  }
+
+  buttons.push([
+    { action: { type: 'text', label: '❓ Команды', payload: JSON.stringify({ action: 'admin_help' }) }, color: 'default' },
+    { action: { type: 'text', label: '◀️ Назад', payload: JSON.stringify({ action: 'back' }) }, color: 'default' }
+  ]);
+
+  return JSON.stringify({ one_time: false, buttons });
+}
 
 export const quizRestartKeyboard = JSON.stringify({
   inline: true,

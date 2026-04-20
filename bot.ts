@@ -4,7 +4,7 @@ import {
   getUnansweredQuestion, saveQuizAnswer, getQuizStats, resetQuiz, getTardigrades, getQuestions
 } from './lib/supabase.js';
 import { isUserAdmin } from './lib/admin.js';
-import { getMainMenu, adminMenuKeyboard, quizRestartKeyboard } from './lib/keyboards.js';
+import { getMainMenu, getAdminMenu, quizRestartKeyboard } from './lib/keyboards.js';
 
 const BOT_ICON = '👾';
 const TOKEN = process.env.TOKEN;
@@ -59,24 +59,6 @@ updates.on('message_new', async (context: MessageContext) => {
       await deleteQuestion(id);
       return context.send(`✅ Вопрос #${id} удален.`);
     }
-
-    if (command === '/quiz_clear') {
-      await deleteAllQuestions();
-      return context.send('✅ Все вопросы квиза удалены.');
-    }
-
-    if (command === '/quiz_init') {
-      const tests = [
-        ['Кто такие тихоходки?', '1', 'Микроскопические животные', 'Вид рыб', 'Пришельцы', 'Насекомые'],
-        ['Сколько ног у тихоходки?', '3', 'Две', 'Шесть', 'Восемь', 'Десять'],
-        ['Где НЕ могут выжить тихоходки?', '4', 'В открытом космосе', 'При радиации', 'В жидком кислороде', 'В жерле вулкана'],
-        ['Как еще называют тихоходок?', '2', 'Водные слоны', 'Водные медведи', 'Моховые поросята', 'Морские львы']
-      ];
-      for (const t of tests) {
-        await addQuizQuestion(t[0], t.slice(2), parseInt(t[3]));
-      }
-      return context.send('✅ База наполнена 4 тестовыми вопросами.');
-    }
   }
 
   if (!payload && !['/admin', '/start'].includes(command)) return;
@@ -96,7 +78,7 @@ updates.on('message_new', async (context: MessageContext) => {
     );
 
     if (command === '/admin' && isAdmin && !context.isChat) {
-      return context.send(`${BOT_ICON} Админ-панель открыта:`, { keyboard: adminMenuKeyboard });
+      return context.send(`${BOT_ICON} Админ-панель:`, { keyboard: getAdminMenu(questions.length > 0) });
     }
 
     const action = payload?.action;
@@ -104,19 +86,36 @@ updates.on('message_new', async (context: MessageContext) => {
     if (action === 'admin_help') {
       const helpText = [
         '📖 Справка по командам:',
+        '/start - начать',
         '/admin - открыть панель управления',
         '/album [ID] - сменить ID альбома',
         '/quiz_add вопрос|номер|вар1|вар2... - добавить вопрос',
-        '/quiz_del [ID] - удалить вопрос по ID',
-        '/quiz_clear - удалить ВСЕ вопросы',
-        '/quiz_init - забить базу 4 тестами'
+        '/quiz_del [ID] - удалить вопрос по ID'
       ].join('\n');
-      return context.send(helpText, { keyboard: adminMenuKeyboard });
+      return context.send(helpText, { keyboard: getAdminMenu(questions.length > 0) });
+    }
+
+    if (action === 'quiz_init') {
+      const tests = [
+        ['Кто такие тихоходки?', '1', 'Микроскопические животные', 'Вид рыб', 'Пришельцы', 'Насекомые'],
+        ['Сколько ног у тихоходки?', '3', 'Две', 'Шесть', 'Восемь', 'Десять'],
+        ['Где НЕ могут выжить тихоходки?', '4', 'В открытом космосе', 'При радиации', 'В жидком кислороде', 'В жерле вулкана'],
+        ['Как еще называют тихоходок?', '2', 'Водные слоны', 'Водные медведи', 'Моховые поросята', 'Морские львы']
+      ];
+      for (const t of tests) {
+        await addQuizQuestion(t[0], t.slice(2), parseInt(t[1]));
+      }
+      return context.send('✅ База инициализирована (4 вопроса).', { keyboard: getAdminMenu(true) });
+    }
+
+    if (action === 'quiz_clear') {
+      await deleteAllQuestions();
+      return context.send('✅ Все вопросы удалены.', { keyboard: getAdminMenu(false) });
     }
 
     if (action === 'tardigrade_day') {
       const { tardigrade, isNew } = await getTodayTardigrade(String(userId));
-      const prefix = isNew ? '🎉 Найдена новая тихоходка дня!' : '📖 Сегодня уже была найдена эта тихоходка:';
+      const prefix = isNew ? '🎉 Найдена новая тихоходка дня!' : '📖 Эта тихоходка уже была найдена:';
       return context.send(`${BOT_ICON} ${prefix}\n\n✨ ${tardigrade.text}\n\n🔬 ${tardigrade.description || ''}`, {
         attachment: tardigrade.image || undefined,
         keyboard
@@ -151,19 +150,27 @@ updates.on('message_new', async (context: MessageContext) => {
       const { qid, ans } = payload;
       const q = questions.find(item => item.id === qid);
       if (!q) return context.send('❌ Вопрос не найден.');
-      const isCorrect = q.correct === ans;
-      await saveQuizAnswer(String(userId), qid, isCorrect);
-      const feedback = isCorrect ? '✅ Верно!' : `❌ Неправильно. Правильный ответ: ${q.options[q.correct - 1]}`;
-      await context.send(feedback);
+
+      await saveQuizAnswer(String(userId), qid, q.correct === ans);
+      await context.send(q.correct === ans ? '✅ Верно!' : `❌ Неправильно. Правильный ответ: ${q.options[q.correct - 1]}`);
+
       const nextQ = await getUnansweredQuestion(String(userId));
       if (!nextQ) {
-        return context.send('Это был последний вопрос!', {
-          keyboard: JSON.stringify({ inline: true, buttons: [[{ action: { type: 'text', label: 'Посмотреть результат', payload: JSON.stringify({ action: 'quiz' }) }, color: 'positive' }]] })
-        });
+        const finalStats = await getQuizStats(String(userId));
+        return context.send(`${BOT_ICON} Квиз завершен! Результат: ${finalStats.correct} из ${finalStats.total}`, { keyboard: quizRestartKeyboard });
       }
-      return context.send('Следующий вопрос?', {
-        keyboard: JSON.stringify({ inline: true, buttons: [[{ action: { type: 'text', label: 'Продолжить квиз', payload: JSON.stringify({ action: 'quiz' }) }, color: 'positive' }]] })
+
+      const nextKeyboard = JSON.stringify({
+        inline: true,
+        buttons: nextQ.options.map((opt, idx) => [{
+          action: {
+            type: 'text', label: opt.slice(0, 40),
+            payload: JSON.stringify({ action: 'quiz_ans', qid: nextQ.id, ans: idx + 1 })
+          },
+          color: 'primary'
+        }])
       });
+      return context.send(`${BOT_ICON} Следующий вопрос:\n\n❓ ${nextQ.question}`, { keyboard: nextKeyboard });
     }
 
     if (action === 'quiz_reset') {
@@ -174,10 +181,15 @@ updates.on('message_new', async (context: MessageContext) => {
     }
 
     if (isAdmin && !context.isChat) {
-      if (action === 'admin_menu') return context.send(`${BOT_ICON} Админ-панель:`, { keyboard: adminMenuKeyboard });
+      if (action === 'admin_menu') return context.send(`${BOT_ICON} Админ-панель:`, { keyboard: getAdminMenu(questions.length > 0) });
       if (action === 'sync_album') {
         const count = await syncAlbum(GROUP_ID, currentAlbumId, userApi);
-        return context.send(`✅ Синхронизация завершена! Объектов: ${count}`, { keyboard: adminMenuKeyboard });
+        return context.send(`✅ Синхронизация завершена! Объектов: ${count}`, { keyboard: getAdminMenu(questions.length > 0) });
+      }
+      if (action === 'test_tardigrade') {
+        if (!tardigrades.length) return context.send('❌ Пусто.');
+        const rand = tardigrades[Math.floor(Math.random() * tardigrades.length)];
+        return context.send(`🧪 Тест:\n\n${rand.text}`, { attachment: rand.image || undefined });
       }
     }
 
