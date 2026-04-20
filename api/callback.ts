@@ -18,8 +18,8 @@ export default async (req: VercelRequest, res: VercelResponse) => {
   }
 
   // ✅ Проверка секретного ключа (ВК передает его прямо в теле запроса)
-  if (process.env.VK_SECRET_KEY) {
-    if (body.secret !== process.env.VK_SECRET_KEY) {
+  if (process.env.SECRET_KEY) {
+    if (body.secret !== process.env.SECRET_KEY) {
       console.error('Invalid secret key');
       res.status(403).send('Invalid secret key');
       return;
