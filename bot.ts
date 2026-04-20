@@ -1,284 +1,192 @@
 import { API, Upload, Updates, MessageContext } from 'vk-io';
 import {
-  getTodayTortoise,
-  getTortoises,
-  addTortoise,
-  deleteTortoise,
-  getRandomQuestion,
-  addQuestion,
-  deleteQuestion,
-  getQuestions,
-  saveTodayQuizAnswer,
+  getTodayTardigrade, syncAlbum, addQuizQuestion, deleteQuestion, deleteAllQuestions,
+  getUnansweredQuestion, saveQuizAnswer, getQuizStats, resetQuiz, getTardigrades, getQuestions
 } from './lib/supabase.js';
 import { isUserAdmin } from './lib/admin.js';
-import { userKeyboard, adminKeyboard, adminMenuKeyboard } from './lib/keyboards.js';
+import { getMainMenu, adminMenuKeyboard, quizRestartKeyboard } from './lib/keyboards.js';
 
-// ─── Типы payload ────────────────────────────────────────────────────────────
+const BOT_ICON = '👾';
+const TOKEN = process.env.TOKEN;
+if (!TOKEN) throw new Error('Критическая ошибка: Переменная TOKEN не найдена!');
 
-type BotPayload =
-  | { action: 'tortoise_day' }
-  | { action: 'quiz' }
-  | { action: 'quiz_answer'; qid: number; answer: number }
-  | { action: 'admin_menu' }
-  | { action: 'manage_tortoises' }
-  | { action: 'manage_questions' }
-  | { action: 'sync_album' }
-  | { action: 'back' };
+const ADMIN_ID_ENV = process.env.SUPER_ADMINS || '';
+const SUPER_ADMINS = ADMIN_ID_ENV.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
 
-// ─── Инициализация ───────────────────────────────────────────────────────────
-
-export const api = new API({ token: process.env.TOKEN as string });
+export const api = new API({ token: TOKEN });
 export const userApi = new API({ token: process.env.USER_TOKEN as string });
 const upload = new Upload({ api });
-
-// updates создаётся один раз и переиспользуется и в polling, и в webhook
 export const updates = new Updates({ api, upload });
 
 export const GROUP_ID = 237639126;
-export const SUPER_ADMINS = [786742761];
-
-// ─── Хелперы ─────────────────────────────────────────────────────────────────
+let currentAlbumId = Number(process.env.ALBUM_ID);
 
 async function checkAdmin(userId: number): Promise<boolean> {
   return SUPER_ADMINS.includes(userId) || (await isUserAdmin(userId, api, GROUP_ID));
 }
 
-// ─── Обработчики ─────────────────────────────────────────────────────────────
-
 updates.on('message_new', async (context: MessageContext) => {
-  // Игнорируем сообщения не от пользователей (боты, группы)
   if (!context.isUser) return;
 
   const userId = context.senderId;
-  const admin = await checkAdmin(userId);
-  const payload = context.messagePayload as BotPayload | undefined;
+  const isAdmin = await checkAdmin(userId);
+  const payload = context.messagePayload;
   const rawText = context.text?.trim() ?? '';
   const command = rawText.toLowerCase();
 
-  const keyboard = admin ? adminKeyboard : userKeyboard;
+  if (isAdmin) {
+    if (command.startsWith('/album ')) {
+      const newId = parseInt(command.replace('/album ', '').trim());
+      if (!isNaN(newId)) {
+        currentAlbumId = newId;
+        return context.send(`✅ ID альбома временно изменен на: ${currentAlbumId}`);
+      }
+    }
+
+    if (command.startsWith('/quiz_add ')) {
+      const data = rawText.replace('/quiz_add ', '').trim();
+      const [q, correct, ...opts] = data.split('|');
+      if (!q || isNaN(parseInt(correct)) || opts.length < 2) {
+        return context.send('❌ Формат: /quiz_add вопрос|номер_ответа|вар1|вар2...');
+      }
+      await addQuizQuestion(q, opts, parseInt(correct));
+      return context.send('✅ Вопрос добавлен!');
+    }
+
+    if (command.startsWith('/quiz_del ')) {
+      const id = parseInt(command.replace('/quiz_del ', '').trim());
+      if (isNaN(id)) return context.send('❌ Укажите числовой ID вопроса.');
+      await deleteQuestion(id);
+      return context.send(`✅ Вопрос #${id} удален.`);
+    }
+
+    if (command === '/quiz_clear') {
+      await deleteAllQuestions();
+      return context.send('✅ Все вопросы квиза удалены.');
+    }
+
+    if (command === '/quiz_init') {
+      const tests = [
+        ['Кто такие тихоходки?', '1', 'Микроскопические животные', 'Вид рыб', 'Пришельцы', 'Насекомые'],
+        ['Сколько ног у тихоходки?', '3', 'Две', 'Шесть', 'Восемь', 'Десять'],
+        ['Где НЕ могут выжить тихоходки?', '4', 'В открытом космосе', 'При радиации', 'В жидком кислороде', 'В жерле вулкана'],
+        ['Как еще называют тихоходок?', '2', 'Водные слоны', 'Водные медведи', 'Моховые поросята', 'Морские львы']
+      ];
+      for (const t of tests) {
+        await addQuizQuestion(t[0], t.slice(2), parseInt(t[3]));
+      }
+      return context.send('✅ База наполнена 4 тестовыми вопросами.');
+    }
+  }
+
+  if (!payload && !['/admin', '/start'].includes(command)) return;
 
   try {
-    // ── Кнопки ──────────────────────────────────────────────────────────────
+    const [tardigrades, questions, stats] = await Promise.all([
+      getTardigrades(),
+      getQuestions(),
+      getQuizStats(String(userId))
+    ]);
 
-    if (payload?.action === 'tortoise_day') {
-      const { tortoise, isNew } = await getTodayTortoise(String(userId));
-      const prefix = isNew ? '' : 'Ты уже узнала свою тихоходку сегодня!\n';
-      await context.send({
-        message: `${prefix}Сегодня ты ${tortoise.text} 🐢${tortoise.description ? `\n\n${tortoise.description}` : ''}`,
-        attachment: tortoise.image || undefined,
-        keyboard,
-      });
-      return;
+    const keyboard = getMainMenu(
+        isAdmin && !context.isChat,
+        tardigrades.length > 0,
+        questions.length > 0,
+        stats.answered > 0 && stats.answered < stats.total
+    );
+
+    if (command === '/admin' && isAdmin && !context.isChat) {
+      return context.send(`${BOT_ICON} Админ-панель открыта:`, { keyboard: adminMenuKeyboard });
     }
 
-    if (payload?.action === 'quiz') {
-      const question = await getRandomQuestion();
+    const action = payload?.action;
+
+    if (action === 'admin_help') {
+      const helpText = [
+        '📖 Справка по командам:',
+        '/admin - открыть панель управления',
+        '/album [ID] - сменить ID альбома',
+        '/quiz_add вопрос|номер|вар1|вар2... - добавить вопрос',
+        '/quiz_del [ID] - удалить вопрос по ID',
+        '/quiz_clear - удалить ВСЕ вопросы',
+        '/quiz_init - забить базу 4 тестами'
+      ].join('\n');
+      return context.send(helpText, { keyboard: adminMenuKeyboard });
+    }
+
+    if (action === 'tardigrade_day') {
+      const { tardigrade, isNew } = await getTodayTardigrade(String(userId));
+      const prefix = isNew ? '🎉 Найдена новая тихоходка дня!' : '📖 Сегодня уже была найдена эта тихоходка:';
+      return context.send(`${BOT_ICON} ${prefix}\n\n✨ ${tardigrade.text}\n\n🔬 ${tardigrade.description || ''}`, {
+        attachment: tardigrade.image || undefined,
+        keyboard
+      });
+    }
+
+    if (action === 'quiz') {
+      const question = await getUnansweredQuestion(String(userId));
       if (!question) {
-        await context.send({ message: 'Пока нет вопросов для квиза 😔', keyboard });
-        return;
+        let resultMsg = `${BOT_ICON} Все доступные вопросы пройдены!\n📈 Результат: ${stats.correct} из ${stats.total}\n\n`;
+        if (stats.percent === 100) resultMsg += '🏆 Невероятно! Это абсолютный успех!';
+        else if (stats.percent === 0) resultMsg += '🌊 Тихоходки сегодня оказались хитрее. Попробуем еще раз?';
+        else resultMsg += 'Хороший результат!';
+        return context.send(resultMsg, { keyboard: quizRestartKeyboard });
       }
-      const quizKeyboard = JSON.stringify({
-        one_time: true,
-        buttons: question.options.map((opt, i) => [
-          {
-            action: {
-              type: 'text',
-              label: `${i + 1}. ${opt}`,
-              payload: JSON.stringify({
-                action: 'quiz_answer',
-                qid: question.id,
-                answer: i + 1,
-              } satisfies BotPayload),
-            },
-            color: 'primary',
+
+      const qKeyboard = JSON.stringify({
+        inline: true,
+        buttons: question.options.map((opt, idx) => [{
+          action: {
+            type: 'text',
+            label: opt.slice(0, 40),
+            payload: JSON.stringify({ action: 'quiz_ans', qid: question.id, ans: idx + 1 })
           },
-        ]),
+          color: 'primary'
+        }])
       });
-      await context.send({ message: question.question, keyboard: quizKeyboard });
-      return;
+      return context.send(`${BOT_ICON} Вопрос:\n\n❓ ${question.question}`, { keyboard: qKeyboard });
     }
 
-    if (payload?.action === 'quiz_answer') {
-      const { qid, answer } = payload;
-      const questions = await getQuestions();
-      const question = questions.find((q) => q.id === qid);
-
-      if (!question) {
-        await context.send({ message: 'Вопрос не найден 😔', keyboard });
-        return;
-      }
-
-      await saveTodayQuizAnswer(String(userId), qid, answer);
-
-      const isCorrect = answer === question.correct;
-      await context.send({
-        message: isCorrect
-          ? '✅ Правильно!'
-          : `❌ Неправильно. Правильный ответ: ${question.options[question.correct - 1]}`,
-        keyboard,
-      });
-      return;
-    }
-
-    if (payload?.action === 'admin_menu') {
-      if (!admin) return;
-      await context.send({ message: '🔧 Админ-панель:', keyboard: adminMenuKeyboard });
-      return;
-    }
-
-    if (payload?.action === 'manage_tortoises') {
-      if (!admin) return;
-      const tortoises = await getTortoises();
-      const list =
-        '🐢 Текущие тихоходки:\n\n' +
-        tortoises.map((t) => `${t.id}. ${t.text}`).join('\n') +
-        '\n\n💡 Команды:\n/add_tardigrade <текст> — добавить\n/delete_tardigrade <id> — удалить';
-      await context.send({ message: list, keyboard: adminMenuKeyboard });
-      return;
-    }
-
-    if (payload?.action === 'sync_album') {
-      if (!admin) return;
-
-      const albumId = process.env.ALBUM_ID;
-      if (!albumId) {
-        await context.send({ message: '❌ В .env.local не указан ALBUM_ID', keyboard: adminMenuKeyboard });
-        return;
-      }
-
-      await context.send({ message: '⏳ Начинаю чтение альбома...', keyboard: adminMenuKeyboard });
-
-      try {
-        // Получаем фото из альбома группы (owner_id для групп всегда с минусом)
-        const photosResponse = await userApi.photos.get({
-          owner_id: -GROUP_ID,
-          album_id: albumId,
-          count: 1000, // Максимум за один запрос
+    if (action === 'quiz_ans') {
+      const { qid, ans } = payload;
+      const q = questions.find(item => item.id === qid);
+      if (!q) return context.send('❌ Вопрос не найден.');
+      const isCorrect = q.correct === ans;
+      await saveQuizAnswer(String(userId), qid, isCorrect);
+      const feedback = isCorrect ? '✅ Верно!' : `❌ Неправильно. Правильный ответ: ${q.options[q.correct - 1]}`;
+      await context.send(feedback);
+      const nextQ = await getUnansweredQuestion(String(userId));
+      if (!nextQ) {
+        return context.send('Это был последний вопрос!', {
+          keyboard: JSON.stringify({ inline: true, buttons: [[{ action: { type: 'text', label: 'Посмотреть результат', payload: JSON.stringify({ action: 'quiz' }) }, color: 'positive' }]] })
         });
-
-        // Получаем уже сохраненные тихоходки, чтобы не добавлять дубликаты
-        const existingTortoises = await getTortoises();
-        const existingImages = new Set(existingTortoises.map((t) => t.image));
-
-        let addedCount = 0;
-
-        for (const photo of photosResponse.items) {
-          const attachment = `photo${photo.owner_id}_${photo.id}`;
-
-          // Если такого фото еще нет в базе
-          if (!existingImages.has(attachment)) {
-            const caption = (photo.text ?? '').trim();
-
-            // Добавляем только если есть описание (первая строка пойдет в название)
-            if (caption) {
-              const [text, ...descParts] = caption.split('\n').map((s) => s.trim());
-              const description = descParts.join('\n').trim();
-
-              await addTortoise(text, description, attachment);
-              addedCount++;
-            }
-          }
-        }
-
-        await context.send({
-          message: `✅ Синхронизация завершена!\n\n📸 Всего фото в альбоме: ${photosResponse.count}\n🐢 Добавлено новых тихоходок: ${addedCount}`,
-          keyboard: adminMenuKeyboard
-        });
-      } catch (error) {
-        console.error('Sync error:', error);
-        await context.send({ message: '❌ Ошибка при синхронизации альбома. Проверь логи.', keyboard: adminMenuKeyboard });
       }
-      return;
-    }
-
-    if (payload?.action === 'manage_questions') {
-      if (!admin) return;
-      const questions = await getQuestions();
-      const list =
-        '❓ Текущие вопросы:\n\n' +
-        questions.map((q) => `${q.id}. ${q.question}`).join('\n') +
-        '\n\n💡 Команды:\n/add_question <вопрос>|<ответ1>|<ответ2>|<ответ3>|<ответ4>|<номер_правильного>\n/delete_question <id>';
-      await context.send({ message: list, keyboard: adminMenuKeyboard });
-      return;
-    }
-
-    if (payload?.action === 'back') {
-      if (!admin) return;
-      await context.send({ message: '👑 Главное меню:', keyboard: adminKeyboard });
-      return;
-    }
-
-    // ── Текстовые команды (только для админов) ───────────────────────────────
-
-    if (admin && command.startsWith('/add_tardigrade ')) {
-      const text = rawText.slice('/add_tardigrade '.length).trim();
-      if (!text) {
-        await context.send('❌ Укажи текст тихоходки');
-        return;
-      }
-      await addTortoise(text, '', null);
-      await context.send(`✅ Добавлена тихоходка: "${text}"`);
-      return;
-    }
-
-    if (admin && command.startsWith('/delete_tardigrade ')) {
-      const id = parseInt(rawText.slice('/delete_tardigrade '.length).trim(), 10);
-      if (isNaN(id)) {
-        await context.send('❌ Неверный ID');
-        return;
-      }
-      await deleteTortoise(id);
-      await context.send('✅ Тихоходка удалена');
-      return;
-    }
-
-    if (admin && command.startsWith('/add_question')) {
-      const raw = rawText.slice('/add_question'.length).trim();
-      const parts = raw.split('|').map((s) => s.trim());
-
-      if (parts.length !== 6) {
-        await context.send(
-          '❌ Формат: /add_question <вопрос>|<ответ1>|<ответ2>|<ответ3>|<ответ4>|<номер_правильного>',
-        );
-        return;
-      }
-
-      const correct = Number(parts[5]);
-      if (!Number.isInteger(correct) || correct < 1 || correct > 4) {
-        await context.send('❌ Номер правильного ответа должен быть от 1 до 4');
-        return;
-      }
-
-      await addQuestion(parts[0], parts.slice(1, 5), correct);
-      await context.send('✅ Вопрос добавлен');
-      return;
-    }
-
-    if (admin && command.startsWith('/delete_question ')) {
-      const id = parseInt(rawText.slice('/delete_question '.length).trim(), 10);
-      if (isNaN(id)) {
-        await context.send('❌ Неверный ID');
-        return;
-      }
-      await deleteQuestion(id);
-      await context.send('✅ Вопрос удалён');
-      return;
-    }
-
-    // ── Текстовые команды (для всех) ─────────────────────────────────────────
-
-    if (['меню', 'привет', 'старт', 'start'].includes(command)) {
-      await context.send({
-        message: admin ? '👑 Админ-меню:' : '📋 Меню:',
-        keyboard,
+      return context.send('Следующий вопрос?', {
+        keyboard: JSON.stringify({ inline: true, buttons: [[{ action: { type: 'text', label: 'Продолжить квиз', payload: JSON.stringify({ action: 'quiz' }) }, color: 'positive' }]] })
       });
-      return;
     }
 
-    // Fallback
-    await context.send({ message: 'Не понял 😅 Выбери из меню:', keyboard });
+    if (action === 'quiz_reset') {
+      await resetQuiz(String(userId));
+      return context.send(`${BOT_ICON} Прогресс квиза сброшен. Можно начинать заново!`, {
+        keyboard: getMainMenu(isAdmin, tardigrades.length > 0, questions.length > 0, false)
+      });
+    }
+
+    if (isAdmin && !context.isChat) {
+      if (action === 'admin_menu') return context.send(`${BOT_ICON} Админ-панель:`, { keyboard: adminMenuKeyboard });
+      if (action === 'sync_album') {
+        const count = await syncAlbum(GROUP_ID, currentAlbumId, userApi);
+        return context.send(`✅ Синхронизация завершена! Объектов: ${count}`, { keyboard: adminMenuKeyboard });
+      }
+    }
+
+    if (action === 'back' || command === '/start') {
+      return context.send(`${BOT_ICON} Главное меню:`, { keyboard });
+    }
+
   } catch (error) {
-    console.error('message_new handler error:', error);
-    await context.send('❌ Что-то пошло не так...');
+    console.error('Bot error:', error);
+    await context.send('❌ Произошла ошибка.');
   }
 });
