@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "prepare": "cp -n .env.example .env.local",
-    "dev": "tsx watch api/dev-server.ts",
+    "prestart": "npm run build",
+    "dev": "tsx watch src/api/dev-server.ts",
     "dev:watch": "tsc --watch",
     "build": "tsc",
     "format": "prettier . --write",
