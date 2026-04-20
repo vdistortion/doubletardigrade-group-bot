@@ -5,11 +5,11 @@
   "scripts": {
     "prepare": "cp -n .env.example .env.local",
     "prestart": "npm run build",
-    "dev": "tsx watch src/api/dev-server.ts",
+    "dev": "tsx watch src/dev-server.ts",
     "dev:watch": "tsc --watch",
     "build": "tsc",
     "format": "prettier . --write",
-    "start": "node dist/api/callback.js"
+    "start": "node dist/callback.js"
   },
   "prettier": {
     "printWidth": 100,

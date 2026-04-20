@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { updates } from '../bot.js';
+import { updates } from './bot.js';
 
 export default async (req: VercelRequest, res: VercelResponse) => {
   const rawBody = await new Promise<string>((resolve, reject) => {
