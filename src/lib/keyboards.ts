@@ -45,7 +45,7 @@ export function getMainMenu(
   return JSON.stringify({ one_time: false, buttons });
 }
 
-export function getAdminMenu(hasQuestions: boolean) {
+export function getAdminMenu(hasQuestions: boolean, enableMessages: boolean, enableChats: boolean) {
   const buttons = [
     [
       {
@@ -66,6 +66,31 @@ export function getAdminMenu(hasQuestions: boolean) {
       },
     ],
   ];
+
+  let modeStatusLabel = 'Режим: Выключен';
+  let modeStatusColor: 'negative' | 'positive' | 'primary' = 'negative';
+
+  if (enableMessages && enableChats) {
+    modeStatusLabel = 'Режим: Сообщения и Чаты';
+    modeStatusColor = 'positive';
+  } else if (enableMessages) {
+    modeStatusLabel = 'Режим: Только Сообщения';
+    modeStatusColor = 'primary';
+  } else if (enableChats) {
+    modeStatusLabel = 'Режим: Только Чаты';
+    modeStatusColor = 'primary';
+  }
+
+  buttons.push([
+    {
+      action: {
+        type: 'text',
+        label: modeStatusLabel,
+        payload: JSON.stringify({ action: 'bot_mode_toggle_menu' }),
+      },
+      color: modeStatusColor,
+    },
+  ]);
 
   if (hasQuestions) {
     buttons.push([
@@ -107,6 +132,44 @@ export function getAdminMenu(hasQuestions: boolean) {
   ]);
 
   return JSON.stringify({ one_time: false, buttons });
+}
+
+export function getBotModeToggleKeyboard(enableMessages: boolean, enableChats: boolean) {
+  return JSON.stringify({
+    inline: true,
+    buttons: [
+      [
+        {
+          action: {
+            type: 'text',
+            label: enableMessages ? '❌ Выключить для сообщений' : '✅ Включить для сообщений',
+            payload: JSON.stringify({ action: 'toggle_mode_messages' }),
+          },
+          color: enableMessages ? 'negative' : 'positive',
+        },
+      ],
+      [
+        {
+          action: {
+            type: 'text',
+            label: enableChats ? '❌ Выключить для чатов' : '✅ Включить для чатов',
+            payload: JSON.stringify({ action: 'toggle_mode_chats' }),
+          },
+          color: enableChats ? 'negative' : 'positive',
+        },
+      ],
+      [
+        {
+          action: {
+            type: 'text',
+            label: '◀️ Назад',
+            payload: JSON.stringify({ action: 'admin_menu' }),
+          },
+          color: 'default',
+        },
+      ],
+    ],
+  });
 }
 
 export const quizRestartKeyboard = JSON.stringify({

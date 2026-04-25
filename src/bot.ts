@@ -11,13 +11,26 @@ import {
   resetQuiz,
   getTardigrades,
   getQuestions,
+  getBotSettings,
+  setBotSetting,
 } from './lib/supabase.js';
 import { isUserAdmin } from './lib/admin.js';
-import { getMainMenu, getAdminMenu, quizRestartKeyboard } from './lib/keyboards.js';
+import {
+  getAdminMenu,
+  getBotModeToggleKeyboard,
+  getMainMenu,
+  quizRestartKeyboard,
+} from './lib/keyboards.js';
+
+console.log(process.env.GROUP_TOKEN);
+console.log(process.env.USER_TOKEN);
 
 const BOT_ICON = '👾';
 const GROUP_TOKEN = process.env.GROUP_TOKEN;
-if (!GROUP_TOKEN) throw new Error('Критическая ошибка: Переменная TOKEN не найдена!');
+if (!GROUP_TOKEN) throw new Error('Критическая ошибка: Переменная GROUP_TOKEN не найдена!');
+
+const USER_TOKEN = process.env.USER_TOKEN;
+if (!USER_TOKEN) throw new Error('Критическая ошибка: Переменная USER_TOKEN не найдена!');
 
 const ADMIN_ID_ENV = process.env.SUPER_ADMINS || '';
 const SUPER_ADMINS = ADMIN_ID_ENV.split(',')
@@ -25,11 +38,11 @@ const SUPER_ADMINS = ADMIN_ID_ENV.split(',')
   .filter((id) => !isNaN(id));
 
 export const api = new API({ token: GROUP_TOKEN });
-export const userApi = new API({ token: process.env.USER_TOKEN as string });
+export const userApi = new API({ token: USER_TOKEN }); // Используем проверенный USER_TOKEN
 const upload = new Upload({ api });
 export const updates = new Updates({ api, upload });
 
-export const GROUP_ID = 237639126;
+export const GROUP_ID = 237639126; // Рассмотри возможность вынести в .env
 let currentAlbumId = Number(process.env.ALBUM_ID);
 
 async function checkAdmin(userId: number): Promise<boolean> {
@@ -40,45 +53,40 @@ updates.on('message_new', async (context: MessageContext) => {
   if (!context.isUser) return;
 
   const userId = context.senderId;
-  const isAdmin = await checkAdmin(userId);
+  const isSuperAdmin = SUPER_ADMINS.includes(userId);
   const payload = context.messagePayload;
   const rawText = context.text?.trim() ?? '';
   const command = rawText.toLowerCase();
 
-  if (isAdmin) {
-    if (command.startsWith('/album ')) {
-      const newId = parseInt(command.replace('/album ', '').trim());
-      if (!isNaN(newId)) {
-        currentAlbumId = newId;
-        return context.send(`✅ ID альбома временно изменен на: ${currentAlbumId}`);
-      }
-    }
+  const isEmergencyAccess = isSuperAdmin && command === '/admin';
 
-    if (command.startsWith('/quiz_add ')) {
-      const data = rawText.replace('/quiz_add ', '').trim();
-      const [q, correct, ...opts] = data.split('|');
-      if (!q || isNaN(parseInt(correct)) || opts.length < 2) {
-        return context.send('❌ Формат: /quiz_add вопрос|номер_ответа|вар1|вар2...');
-      }
-      await addQuizQuestion(q, opts, parseInt(correct));
-      return context.send('✅ Вопрос добавлен!');
-    }
+  if (!isEmergencyAccess) {
+    const { enable_messages, enable_chats } = await getBotSettings();
+    const inChat = context.isChat;
 
-    if (command.startsWith('/quiz_del ')) {
-      const id = parseInt(command.replace('/quiz_del ', '').trim());
-      if (isNaN(id)) return context.send('❌ Укажите числовой ID вопроса.');
-      await deleteQuestion(id);
-      return context.send(`✅ Вопрос #${id} удален.`);
+    const isEnabledForMessages = enable_messages && !inChat;
+    const isEnabledForChats = enable_chats && inChat;
+
+    // Если бот не включен для текущего контекста (личные сообщения или чат)
+    // и это не экстренная команда админа, то игнорируем сообщение.
+    if (!isEnabledForMessages && !isEnabledForChats) {
+      return;
     }
   }
 
+  // Проверка админа теперь происходит после первичной фильтрации для оптимизации
+  const isAdmin = await checkAdmin(userId);
+
+  // Оригинальный ранний выход для сообщений без payload и не команд, теперь после фильтра режима
   if (!payload && !['/admin', '/start'].includes(command)) return;
 
   try {
-    const [tardigrades, questions, stats] = await Promise.all([
+    // Загружаем все необходимые данные параллельно, включая настройки бота
+    const [tardigrades, questions, stats, botSettings] = await Promise.all([
       getTardigrades(),
       getQuestions(),
       getQuizStats(String(userId)),
+      getBotSettings(),
     ]);
 
     const keyboard = getMainMenu(
@@ -90,7 +98,11 @@ updates.on('message_new', async (context: MessageContext) => {
 
     if (command === '/admin' && isAdmin && !context.isChat) {
       return context.send(`${BOT_ICON} Админ-панель:`, {
-        keyboard: getAdminMenu(questions.length > 0),
+        keyboard: getAdminMenu(
+          questions.length > 0,
+          botSettings.enable_messages,
+          botSettings.enable_chats,
+        ),
       });
     }
 
@@ -105,7 +117,47 @@ updates.on('message_new', async (context: MessageContext) => {
         '/quiz_add вопрос|номер|вар1|вар2... - добавить вопрос',
         '/quiz_del [ID] - удалить вопрос по ID',
       ].join('\n');
-      return context.send(helpText, { keyboard: getAdminMenu(questions.length > 0) });
+      return context.send(helpText, {
+        keyboard: getAdminMenu(
+          questions.length > 0,
+          botSettings.enable_messages,
+          botSettings.enable_chats,
+        ),
+      });
+    }
+
+    if (action === 'bot_mode_toggle_menu' && isAdmin && !context.isChat) {
+      return context.send(`${BOT_ICON} Управление режимом бота:`, {
+        keyboard: getBotModeToggleKeyboard(botSettings.enable_messages, botSettings.enable_chats),
+      });
+    }
+
+    if (action === 'toggle_mode_messages' && isAdmin && !context.isChat) {
+      await setBotSetting('enable_messages', !botSettings.enable_messages);
+      const updatedSettings = await getBotSettings(); // Получаем обновленные настройки
+      return context.send(
+        `✅ Режим для сообщений ${updatedSettings.enable_messages ? 'включен' : 'выключен'}.`,
+        {
+          keyboard: getBotModeToggleKeyboard(
+            updatedSettings.enable_messages,
+            updatedSettings.enable_chats,
+          ),
+        },
+      );
+    }
+
+    if (action === 'toggle_mode_chats' && isAdmin && !context.isChat) {
+      await setBotSetting('enable_chats', !botSettings.enable_chats);
+      const updatedSettings = await getBotSettings(); // Получаем обновленные настройки
+      return context.send(
+        `✅ Режим для чатов ${updatedSettings.enable_chats ? 'включен' : 'выключен'}.`,
+        {
+          keyboard: getBotModeToggleKeyboard(
+            updatedSettings.enable_messages,
+            updatedSettings.enable_chats,
+          ),
+        },
+      );
     }
 
     if (action === 'quiz_init') {
@@ -140,13 +192,15 @@ updates.on('message_new', async (context: MessageContext) => {
         await addQuizQuestion(t[0], t.slice(2), parseInt(t[1]));
       }
       return context.send('✅ База инициализирована (4 вопроса).', {
-        keyboard: getAdminMenu(true),
+        keyboard: getAdminMenu(true, botSettings.enable_messages, botSettings.enable_chats),
       });
     }
 
     if (action === 'quiz_clear') {
       await deleteAllQuestions();
-      return context.send('✅ Все вопросы удалены.', { keyboard: getAdminMenu(false) });
+      return context.send('✅ Все вопросы удалены.', {
+        keyboard: getAdminMenu(false, botSettings.enable_messages, botSettings.enable_chats),
+      });
     }
 
     if (action === 'tardigrade_day') {
@@ -246,12 +300,20 @@ updates.on('message_new', async (context: MessageContext) => {
     if (isAdmin && !context.isChat) {
       if (action === 'admin_menu')
         return context.send(`${BOT_ICON} Админ-панель:`, {
-          keyboard: getAdminMenu(questions.length > 0),
+          keyboard: getAdminMenu(
+            questions.length > 0,
+            botSettings.enable_messages,
+            botSettings.enable_chats,
+          ),
         });
       if (action === 'sync_album') {
         const count = await syncAlbum(GROUP_ID, currentAlbumId, userApi);
         return context.send(`✅ Синхронизация завершена! Объектов: ${count}`, {
-          keyboard: getAdminMenu(questions.length > 0),
+          keyboard: getAdminMenu(
+            questions.length > 0,
+            botSettings.enable_messages,
+            botSettings.enable_chats,
+          ),
         });
       }
       if (action === 'test_tardigrade') {

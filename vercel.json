@@ -2,7 +2,6 @@
   "outputDirectory": "dist",
   "functions": {
     "api/callback.ts": {
-      "memory": 1024,
       "maxDuration": 30
     }
   }
